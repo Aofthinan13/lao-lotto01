@@ -1,0 +1,24 @@
+body {
+  font-family: sans-serif;
+  text-align: center;
+  background: #0f172a;
+  color: white;
+}
+
+.box {
+  margin: 20px;
+}
+
+button {
+  padding: 10px 20px;
+  margin: 5px;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+#result {
+  font-size: 30px;
+  color: #22c55e;
+  margin-top: 10px;
+}
