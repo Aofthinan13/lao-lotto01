@@ -1,24 +1,21 @@
 <!DOCTYPE html>
 <html lang="th">
 <head>
-  <meta charset="UTF-8" />
-  <title>AI ทายหวยลาว</title>
-  <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <title>V2 AI หวยลาว</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0"></script>
 </head>
+
 <body>
+  <h1>🧠 V2 Hybrid AI หวยลาว</h1>
 
-  <h1>🤖 AI ทายผลหวยลาว</h1>
+  <button onclick="loadAndTrain()">📊 โหลด + Train AI</button>
+  <button onclick="predict()">🎯 ทำนาย</button>
 
-  <div class="box">
-    <button onclick="trainAI()">📊 วิเคราะห์ข้อมูล</button>
-    <button onclick="predict()">🎯 ทายเลข</button>
-  </div>
-
-  <h2>ผลทำนาย</h2>
+  <h2>ผล AI</h2>
   <div id="result">-</div>
 
-  <h2>ข้อมูลย้อนหลัง</h2>
-  <pre id="history"></pre>
+  <pre id="log"></pre>
 
   <script src="app.js"></script>
 </body>
