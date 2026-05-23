@@ -1,56 +1,51 @@
-let model;
 let data = [];
+let lstmModel, gruModel;
+
 let freqMap = {};
+let heatMap = {};
 
-// 🔥 1) โหลดข้อมูลจริง (API + fallback)
-async function fetchData() {
-  try {
-    const res = await fetch("https://api.apilotto.com/api/v1/laolottohistory", {
-      headers: {
-        "x-api-key": "YOUR_API_KEY"
-      }
-    });
-
-    const json = await res.json();
-
-    data = json.data.map(x => ({
-      date: x.date,
-      last3: x.laohistory3
-    }));
-
-    log("📡 ใช้ข้อมูล API จริง");
-
-  } catch (e) {
-    const res = await fetch("data.json");
-    data = await res.json();
-
-    log("⚠️ ใช้ fallback data.json");
-  }
+// =====================
+// LOAD DATA
+// =====================
+async function loadData() {
+  const res = await fetch("data.json");
+  data = await res.json();
+  log("โหลดข้อมูลแล้ว: " + data.length);
 }
 
-
-// 🔢 encode
+// =====================
+// ENCODE
+// =====================
 function encode(num) {
   return num.split("").map(n => Number(n) / 9);
 }
 
-
-// 📊 frequency analysis (เลขออกบ่อย)
+// =====================
+// FREQUENCY
+// =====================
 function buildFrequency() {
   freqMap = {};
-
   data.forEach(d => {
     for (let n of d.last3) {
       freqMap[n] = (freqMap[n] || 0) + 1;
     }
   });
-
-  log("📊 built frequency map");
 }
 
+// =====================
+// HEATMAP
+// =====================
+function buildHeatmap() {
+  heatMap = {};
+  data.forEach(d => {
+    heatMap[d.last3] = (heatMap[d.last3] || 0) + 1;
+  });
+}
 
-// 🧠 LSTM MODEL (V2 optimized)
-function createModel() {
+// =====================
+// LSTM MODEL
+// =====================
+function createLSTM() {
   const model = tf.sequential();
 
   model.add(tf.layers.lstm({
@@ -59,21 +54,11 @@ function createModel() {
     inputShape: [5, 3]
   }));
 
-  model.add(tf.layers.dropout({ rate: 0.2 }));
+  model.add(tf.layers.lstm({ units: 64 }));
 
-  model.add(tf.layers.lstm({
-    units: 64
-  }));
+  model.add(tf.layers.dense({ units: 32, activation: "relu" }));
 
-  model.add(tf.layers.dense({
-    units: 32,
-    activation: "relu"
-  }));
-
-  model.add(tf.layers.dense({
-    units: 3,
-    activation: "sigmoid"
-  }));
+  model.add(tf.layers.dense({ units: 3, activation: "sigmoid" }));
 
   model.compile({
     optimizer: "adam",
@@ -83,12 +68,38 @@ function createModel() {
   return model;
 }
 
+// =====================
+// GRU MODEL
+// =====================
+function createGRU() {
+  const model = tf.sequential();
 
-// 📊 dataset
+  model.add(tf.layers.gru({
+    units: 64,
+    returnSequences: true,
+    inputShape: [5, 3]
+  }));
+
+  model.add(tf.layers.gru({ units: 32 }));
+
+  model.add(tf.layers.dense({ units: 16, activation: "relu" }));
+
+  model.add(tf.layers.dense({ units: 3, activation: "sigmoid" }));
+
+  model.compile({
+    optimizer: "adam",
+    loss: "meanSquaredError"
+  });
+
+  return model;
+}
+
+// =====================
+// DATASET
+// =====================
 function makeDataset() {
   const xs = [];
   const ys = [];
-
   const window = 5;
 
   for (let i = 0; i < data.length - window; i++) {
@@ -109,34 +120,34 @@ function makeDataset() {
   };
 }
 
+// =====================
+// TRAIN ALL
+// =====================
+async function trainAll() {
 
-// 🚀 TRAIN + AUTO UPDATE
-async function loadAndTrain() {
-
-  await fetchData();
+  await loadData();
 
   buildFrequency();
+  buildHeatmap();
 
-  model = createModel();
+  lstmModel = createLSTM();
+  gruModel = createGRU();
 
   const { xs, ys } = makeDataset();
 
-  log("🚀 training V2 AI...");
+  log("Training LSTM...");
+  await lstmModel.fit(xs, ys, { epochs: 80 });
 
-  await model.fit(xs, ys, {
-    epochs: 120,
-    batchSize: 8,
-    shuffle: true
-  });
+  log("Training GRU...");
+  await gruModel.fit(xs, ys, { epochs: 80 });
 
-  log("✅ train complete");
+  log("Train complete!");
 }
 
-
-// 🎯 HYBRID PREDICT (LSTM + Frequency)
+// =====================
+// PREDICT (ENSEMBLE)
+// =====================
 function predict() {
-
-  if (!model) return alert("ต้อง train ก่อน");
 
   const window = 5;
   let input = [];
@@ -147,30 +158,39 @@ function predict() {
 
   const tensor = tf.tensor3d([input], [1, window, 3]);
 
-  const out = model.predict(tensor);
+  const lstmOut = lstmModel.predict(tensor);
+  const gruOut = gruModel.predict(tensor);
 
-  let lstmResult = Array.from(out.dataSync())
-    .map(v => Math.floor(v * 9));
+  const lstm = Array.from(lstmOut.dataSync());
+  const gru = Array.from(gruOut.dataSync());
 
-  // 🔥 frequency boost
-  let boosted = lstmResult.map(n => {
+  let merged = lstm.map((v, i) => (v * 0.6 + gru[i] * 0.4));
+
+  let nums = merged.map(v => Math.floor(v * 9));
+
+  let scored = nums.map(n => {
     let freq = freqMap[n] || 1;
-    return { num: n, score: freq };
+    let heat = heatMap[n] || 1;
+
+    return {
+      num: n,
+      score: freq + heat
+    };
   });
 
-  boosted.sort((a, b) => b.score - a.score);
+  scored.sort((a, b) => b.score - a.score);
 
-  let final = boosted.slice(0, 3).map(x => x.num).join("");
+  let result = scored.slice(0, 3).map(x => x.num).join("");
 
-  let confidence =
-    Math.min(100, boosted[0].score * 10).toFixed(0);
+  let confidence = Math.min(100, scored[0].score * 10);
 
   document.getElementById("result").innerHTML =
-    `🎯 ${final} <br>📊 confidence: ${confidence}%`;
+    `🎯 ${result}<br>📊 confidence: ${confidence.toFixed(0)}%`;
 }
 
-
-// 🧾 log
+// =====================
+// LOG
+// =====================
 function log(t) {
   document.getElementById("log").innerText += t + "\n";
 }
